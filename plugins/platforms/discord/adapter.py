@@ -5991,6 +5991,32 @@ class DiscordAdapter(BasePlatformAdapter):
         async def slash_deny(interaction: discord.Interaction, scope: str = ""):
             await self._run_simple_slash(interaction, f"/deny {scope}".strip())
 
+        @tree.command(name="btw", description="Ephemeral side question using session context (not persisted)")
+        @discord.app_commands.describe(question="Your side question")
+        async def slash_btw(interaction: discord.Interaction, question: str):
+            await self._run_simple_slash(interaction, f"/btw {question}".strip())
+
+        @tree.command(name="commands", description="Browse all commands and skills")
+        @discord.app_commands.describe(page="Page number (optional)")
+        async def slash_commands(interaction: discord.Interaction, page: int = None):
+            arg = f" {page}" if page else ""
+            await self._run_simple_slash(interaction, f"/commands{arg}".strip())
+
+        @tree.command(name="queue", description="Queue a prompt for the next turn (doesn't interrupt)")
+        @discord.app_commands.describe(prompt="Prompt to queue")
+        async def slash_queue(interaction: discord.Interaction, prompt: str):
+            await self._run_simple_slash(interaction, f"/queue {prompt}".strip())
+
+        @tree.command(name="verbose", description="Show or set tool progress display mode")
+        @discord.app_commands.describe(mode="Mode: off, new, all, verbose (leave empty to show current)")
+        async def slash_verbose(interaction: discord.Interaction, mode: str = None):
+            arg = f" {mode}" if mode else ""
+            await self._run_simple_slash(interaction, f"/verbose{arg}".strip())
+
+        @tree.command(name="profile", description="Show active profile name and home directory")
+        async def slash_profile(interaction: discord.Interaction):
+            await self._run_simple_slash(interaction, "/profile")
+
         @tree.command(name="thread", description="Create a new thread and start a Hermes session in it")
         @discord.app_commands.describe(
             name="Thread name",
