@@ -1,0 +1,5 @@
+name: tool-output-format
+description: "YAML display formatting for tool output"
+version: "0.1.0"
+author: "Hermes Agent"
+kind: backend
