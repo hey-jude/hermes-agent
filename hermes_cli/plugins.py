@@ -165,6 +165,11 @@ VALID_HOOKS: Set[str] = {
     "post_tool_call",
     "transform_terminal_output",
     "transform_tool_result",
+    # Format tool result for display only. Unlike transform_tool_result,
+    # this hook does NOT affect what the LLM sees — only the user-facing
+    # display (CLI preview, gateway verbose args). Plugins return a string
+    # to replace the display text, or None to leave unchanged.
+    "format_tool_result_for_display",
     # Transform LLM output before it's returned to the user.
     # Plugins return a string to replace the response text, or None/empty to leave unchanged.
     # First non-None string wins. Useful for vocabulary/personality transformation.

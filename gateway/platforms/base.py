@@ -3452,6 +3452,23 @@ class BasePlatformAdapter(ABC):
             if event.args:
                 import json
                 args_str = json.dumps(event.args, ensure_ascii=False, default=str)
+                # Allow plugins to reformat args display
+                try:
+                    from hermes_cli.plugins import has_hook, invoke_hook
+                    if has_hook("format_tool_result_for_display"):
+                        hook_results = invoke_hook(
+                            "format_tool_result_for_display",
+                            tool_name=event.tool_name,
+                            args=event.args,
+                            result=args_str,
+                            display_context="gateway_verbose_args",
+                        )
+                        for hook_result in hook_results:
+                            if isinstance(hook_result, str):
+                                args_str = hook_result
+                                break
+                except Exception:
+                    pass
                 if preview_max_len > 0 and len(args_str) > preview_max_len:
                     args_str = args_str[:preview_max_len - 3] + "..."
                 return f"{emoji} {event.tool_name}({list(event.args.keys())})\n{args_str}"

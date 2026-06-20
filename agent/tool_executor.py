@@ -1878,6 +1878,22 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
             agent._safe_print(f"  {cute_msg}")
         elif not agent.quiet_mode and getattr(agent, "tool_progress_mode", "all") != "off":
             _preview_str = _multimodal_text_summary(display_function_result)
+            # Allow plugins to reformat the display string (LLM unchanged)
+            try:
+                from hermes_cli.plugins import has_hook, invoke_hook
+                if has_hook("format_tool_result_for_display"):
+                    hook_results = invoke_hook(
+                        "format_tool_result_for_display",
+                        tool_name=name,
+                        args=args,
+                        result=display_function_result,
+                    )
+                    for hook_result in hook_results:
+                        if isinstance(hook_result, str):
+                            _preview_str = hook_result
+                            break
+            except Exception:
+                pass
             if agent.verbose_logging:
                 print(f"  ✅ Tool {i+1} completed in {tool_duration:.2f}s")
                 print(agent._wrap_verbose("Result: ", _preview_str))
@@ -2817,11 +2833,28 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 logging.debug("Tool output risk callback error: %s", cb_err)
 
         if not agent.quiet_mode and getattr(agent, "tool_progress_mode", "all") != "off":
+            _display_result = _multimodal_text_summary(function_result)
+            # Allow plugins to reformat the display string (LLM unchanged)
+            try:
+                from hermes_cli.plugins import has_hook, invoke_hook
+                if has_hook("format_tool_result_for_display"):
+                    hook_results = invoke_hook(
+                        "format_tool_result_for_display",
+                        tool_name=function_name,
+                        args=function_args,
+                        result=function_result,
+                    )
+                    for hook_result in hook_results:
+                        if isinstance(hook_result, str):
+                            _display_result = hook_result
+                            break
+            except Exception:
+                pass
             if agent.verbose_logging:
                 print(f"  ✅ Tool {i} completed in {tool_duration:.2f}s")
-                print(agent._wrap_verbose("Result: ", function_result))
+                print(agent._wrap_verbose("Result: ", _display_result))
             else:
-                _fr_str = function_result if isinstance(function_result, str) else str(function_result)
+                _fr_str = _display_result if isinstance(_display_result, str) else str(_display_result)
                 response_preview = _fr_str[:agent.log_prefix_chars] + "..." if len(_fr_str) > agent.log_prefix_chars else _fr_str
                 print(f"  ✅ Tool {i} completed in {tool_duration:.2f}s - {response_preview}")
 
