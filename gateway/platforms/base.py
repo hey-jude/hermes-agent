@@ -2005,7 +2005,8 @@ class BasePlatformAdapter(ABC):
         from agent.display import get_tool_emoji, prepare_tool_preview, verbose_tool_args_text
         emoji, tool = get_tool_emoji(event.tool_name, default='⚙️'), event.tool_name
         if mode == "verbose" and event.args:
-            args_str = verbose_tool_args_text(event.args, preview_max_len, self.supports_code_blocks)
+            args_str = verbose_tool_args_text(
+                event.args, preview_max_len, self.supports_code_blocks, event.tool_name)
             return t("gateway.progress.tool_verbose", emoji=emoji, tool=tool, keys=list(event.args.keys()), args=args_str)
         if not event.preview:
             return t("gateway.progress.tool_pending", emoji=emoji, tool=tool)

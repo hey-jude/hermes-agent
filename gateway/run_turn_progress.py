@@ -307,7 +307,7 @@ class GatewayTurnProgressMixin:
                 # tool_preview_length 0 (default) = no truncation in verbose mode; the user asked
                 # for full detail and platform message-length limits handle the rest.
                 args_str = verbose_tool_args_text(args, get_tool_preview_max_len(),
-                                                  getattr(adapter, "supports_code_blocks", False))
+                                                  getattr(adapter, "supports_code_blocks", False), tool_name)
                 code = t("gateway.progress.tool_verbose", emoji=emoji, tool=tool_name, keys=list(args.keys()), args=args_str)
             elif code is None:
                 code = (t("gateway.progress.tool_preview", emoji=emoji, tool=tool_name, preview=preview) if preview

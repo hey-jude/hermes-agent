@@ -131,13 +131,29 @@ def get_tool_preview_max_len() -> int:
 _JSON_ESCAPE_RE = re.compile(r"\\(.)")
 
 
-def verbose_tool_args_text(args: dict, max_len: int, code_block: bool) -> str:
+def verbose_tool_args_text(args: dict, max_len: int, code_block: bool, tool_name: str = "") -> str:
     """Verbose tool-progress args: compact JSON (capped at ``max_len``; 0 = no cap). On markdown
     platforms it goes in a code block so the formatter keeps it verbatim (``**x**``/``a_b`` are
     otherwise rendered as markup), with JSON's ``\\n``/``\\t`` shown as real line breaks. Args
     holding ``` stay plain: Slack and Discord end a code block at any ``` inside it."""
     import json
     text = json.dumps(args, ensure_ascii=False, default=str)
+    # Display-only hook (LLM payload unchanged).
+    try:
+        from hermes_cli.plugins import has_hook, invoke_hook
+        if has_hook("format_tool_result_for_display"):
+            for hook_result in invoke_hook(
+                "format_tool_result_for_display",
+                tool_name=tool_name,
+                args=args,
+                result=text,
+                display_context="gateway_verbose_args",
+            ):
+                if isinstance(hook_result, str):
+                    text = hook_result
+                    break
+    except Exception:
+        pass
     if max_len > 0 and len(text) > max_len:
         text = text[:max_len - 3] + "..."
     if not code_block or "```" in text:
