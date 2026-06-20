@@ -15,6 +15,7 @@ Port-tracking: anomalyco/opencode PR #23770
 
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 import pytest
@@ -37,7 +38,23 @@ class TestDefaults:
         assert tol.DEFAULT_MAX_BYTES == 50_000
         assert tol.DEFAULT_MAX_LINES == 2000
         assert tol.DEFAULT_MAX_LINE_LENGTH == 2000
+        assert tol.DEFAULT_FORMAT == "json"
 
+    def test_get_limits_returns_defaults_when_config_missing(self):
+        with patch("hermes_cli.config.load_config", return_value={}):
+            limits = tol.get_tool_output_limits()
+        assert limits == {
+            "max_bytes": tol.DEFAULT_MAX_BYTES,
+            "max_lines": tol.DEFAULT_MAX_LINES,
+            "max_line_length": tol.DEFAULT_MAX_LINE_LENGTH,
+            "format": "json",
+        }
+
+    def test_get_limits_returns_defaults_when_config_not_a_dict(self):
+        # load_config should always return a dict but be defensive anyway.
+        with patch("hermes_cli.config.load_config", return_value="not a dict"):
+            limits = tol.get_tool_output_limits()
+        assert limits["max_bytes"] == tol.DEFAULT_MAX_BYTES
 
     def test_get_limits_returns_defaults_when_load_config_raises(self):
         def _boom():
@@ -59,11 +76,18 @@ class TestOverrides:
         }
         with patch("hermes_cli.config.load_config", return_value=cfg):
             limits = tol.get_tool_output_limits()
-        assert limits == {
-            "max_bytes": 100_000,
-            "max_lines": 5000,
-            "max_line_length": 4096,
-        }
+        assert limits["max_bytes"] == 100_000
+        assert limits["max_lines"] == 5000
+        assert limits["max_line_length"] == 4096
+        assert limits["format"] == "json"
+
+    def test_partial_override_preserves_other_defaults(self):
+        cfg = {"tool_output": {"max_bytes": 200_000}}
+        with patch("hermes_cli.config.load_config", return_value=cfg):
+            limits = tol.get_tool_output_limits()
+        assert limits["max_bytes"] == 200_000
+        assert limits["max_lines"] == tol.DEFAULT_MAX_LINES
+        assert limits["max_line_length"] == tol.DEFAULT_MAX_LINE_LENGTH
 
 
     def test_section_not_a_dict_falls_back(self):
@@ -139,3 +163,103 @@ class TestIntegrationReadPagination:
         # Clamped to default MAX_LINES (2000).
         assert limit == tol.DEFAULT_MAX_LINES
         assert offset == 10
+
+
+class TestNormalizeNewlines:
+    """Literal \\n / \\t escapes in terminal output should become real characters."""
+
+    def test_literal_backslash_n_becomes_newline(self):
+        from plugins.tool_output_format import _normalize_newlines
+        assert _normalize_newlines("line1\\nline2") == "line1\nline2"
+
+    def test_literal_backslash_t_becomes_tab(self):
+        from plugins.tool_output_format import _normalize_newlines
+        assert _normalize_newlines("col1\\tcol2") == "col1\tcol2"
+
+    def test_real_newlines_unchanged(self):
+        from plugins.tool_output_format import _normalize_newlines
+        assert _normalize_newlines("line1\nline2") == "line1\nline2"
+
+    def test_mixed_escapes(self):
+        from plugins.tool_output_format import _normalize_newlines
+        assert _normalize_newlines("a\\nb\\tc") == "a\nb\tc"
+
+    def test_no_escapes_unchanged(self):
+        from plugins.tool_output_format import _normalize_newlines
+        assert _normalize_newlines("plain text") == "plain text"
+
+    def test_double_backslash_not_confused(self):
+        from plugins.tool_output_format import _normalize_newlines
+        # \\\\n means literal backslash followed by n, not newline
+        assert _normalize_newlines("path\\\\nfile") == "path\\nfile"
+
+
+class TestTerminalOutputExtraction:
+    """Terminal tool returns {"output": ..., "exit_code": ..., "error": ...}
+    but display formatting should extract just the output field."""
+
+    def test_terminal_output_extracted_for_yaml(self):
+        from plugins.tool_output_format import _extract_display_payload
+        terminal_result = json.dumps({
+            "output": "total 48\ndrwxr-xr-x  12 jude  staff  384 Jun 20 12:30 .",
+            "exit_code": 0,
+            "error": None,
+        })
+        payload = _extract_display_payload(terminal_result, "terminal")
+        assert payload == "total 48\ndrwxr-xr-x  12 jude  staff  384 Jun 20 12:30 ."
+
+    def test_terminal_error_result_extracted(self):
+        from plugins.tool_output_format import _extract_display_payload
+        terminal_result = json.dumps({
+            "output": "ls: no such file or directory",
+            "exit_code": 2,
+            "error": None,
+        })
+        payload = _extract_display_payload(terminal_result, "terminal")
+        assert payload == "ls: no such file or directory"
+
+    def test_non_terminal_tool_passthrough(self):
+        from plugins.tool_output_format import _extract_display_payload
+        file_result = json.dumps({"content": "hello", "total_lines": 1})
+        payload = _extract_display_payload(file_result, "read_file")
+        assert payload == file_result  # unchanged
+
+    def test_terminal_non_json_passthrough(self):
+        from plugins.tool_output_format import _extract_display_payload
+        raw = "just plain text output"
+        payload = _extract_display_payload(raw, "terminal")
+        assert payload == raw  # not JSON, pass through
+
+    def test_terminal_missing_output_field_passthrough(self):
+        from plugins.tool_output_format import _extract_display_payload
+        terminal_result = json.dumps({"exit_code": 0, "error": None})
+        payload = _extract_display_payload(terminal_result, "terminal")
+        assert payload == terminal_result  # no "output" key, pass through
+
+    def test_terminal_output_yaml_format(self):
+        from plugins.tool_output_format import _on_format_tool_result_for_display
+        terminal_result = json.dumps({
+            "output": "file1.txt\nfile2.txt",
+            "exit_code": 0,
+            "error": None,
+        })
+        with patch("plugins.tool_output_format.get_tool_output_format", return_value="yaml"):
+            result = _on_format_tool_result_for_display(
+                tool_name="terminal", result=terminal_result
+            )
+        assert result is not None
+        assert "file1.txt" in result
+        assert "exit_code" not in result  # metadata stripped
+
+    def test_terminal_output_text_format(self):
+        from plugins.tool_output_format import _on_format_tool_result_for_display
+        terminal_result = json.dumps({
+            "output": "hello world",
+            "exit_code": 0,
+            "error": None,
+        })
+        with patch("plugins.tool_output_format.get_tool_output_format", return_value="text"):
+            result = _on_format_tool_result_for_display(
+                tool_name="terminal", result=terminal_result
+            )
+        assert result == "hello world"

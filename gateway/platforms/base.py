@@ -2022,6 +2022,22 @@ class BasePlatformAdapter(ABC):
         if mode == "verbose" and event.args:
             import json
             args_str = json.dumps(event.args, ensure_ascii=False, default=str)
+            # Display-only hook (LLM payload unchanged).
+            try:
+                from hermes_cli.plugins import has_hook, invoke_hook
+                if has_hook("format_tool_result_for_display"):
+                    for hook_result in invoke_hook(
+                        "format_tool_result_for_display",
+                        tool_name=event.tool_name,
+                        args=event.args,
+                        result=args_str,
+                        display_context="gateway_verbose_args",
+                    ):
+                        if isinstance(hook_result, str):
+                            args_str = hook_result
+                            break
+            except Exception:
+                pass
             if preview_max_len > 0 and len(args_str) > preview_max_len:
                 args_str = args_str[:preview_max_len - 3] + "..."
             return f"{head}({list(event.args.keys())})\n{args_str}"

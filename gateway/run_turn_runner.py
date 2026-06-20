@@ -276,6 +276,22 @@ class TurnRunner:
                 from agent.display import get_tool_preview_max_len
                 pl = get_tool_preview_max_len()
                 args_str = json.dumps(args, ensure_ascii=False, default=str)
+                # Display-only hook (LLM payload unchanged).
+                try:
+                    from hermes_cli.plugins import has_hook, invoke_hook
+                    if has_hook("format_tool_result_for_display"):
+                        for hook_result in invoke_hook(
+                            "format_tool_result_for_display",
+                            tool_name=tool_name,
+                            args=args,
+                            result=args_str,
+                            display_context="gateway_verbose_args",
+                        ):
+                            if isinstance(hook_result, str):
+                                args_str = hook_result
+                                break
+                except Exception:
+                    pass
                 # tool_preview_length 0 (default) = no truncation in verbose mode; the user asked
                 # for full detail and platform message-length limits handle the rest.
                 if pl > 0 and len(args_str) > pl:

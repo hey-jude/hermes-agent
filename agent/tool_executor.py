@@ -1168,6 +1168,22 @@ def _print_tool_completed(agent, index: int, tool_duration: float, result) -> No
         print(f"  ✅ Tool {index} completed in {tool_duration:.2f}s - {_preview(result if isinstance(result, str) else str(result), agent.log_prefix_chars)}")
 
 
+def _apply_display_hook(tool_name, args, result, fallback=None):
+    """Display-only reformat via ``format_tool_result_for_display`` hook (LLM payload unchanged)."""
+    try:
+        from hermes_cli.plugins import has_hook, invoke_hook
+        if has_hook("format_tool_result_for_display"):
+            for hook_result in invoke_hook(
+                "format_tool_result_for_display",
+                tool_name=tool_name, args=args, result=result,
+            ):
+                if isinstance(hook_result, str):
+                    return hook_result
+    except Exception:
+        pass
+    return fallback if fallback is not None else result
+
+
 # ── Concurrent batch machinery ──────────────────────────────────────────────
 
 
@@ -1495,7 +1511,9 @@ def _append_batch_results(agent, messages: list, effective_task_id: str, batch: 
             cute_msg = _get_cute_tool_message_impl(ref.name, ref.args, tool_duration, result=display_function_result)
             agent._safe_print(f"  {cute_msg}")
         elif _tool_progress_enabled(agent):
-            _print_tool_completed(agent, i + 1, tool_duration, _multimodal_text_summary(display_function_result))
+            _display_str = _multimodal_text_summary(display_function_result)
+            _display_str = _apply_display_hook(ref.name, ref.args, display_function_result, fallback=_display_str)
+            _print_tool_completed(agent, i + 1, tool_duration, _display_str)
 
         _emit_tool_complete_and_risk(agent, ref, display_function_result, risk_metadata, blocked)
     return True
@@ -1766,7 +1784,8 @@ def _publish_sequential_result(agent, messages: list, ref: _ToolCallRef, managed
 
     _emit_tool_complete_and_risk(agent, ref, display_function_result, risk_metadata, managed.blocked)
     if _tool_progress_enabled(agent):
-        _print_tool_completed(agent, index, tool_duration, function_result)
+        _display_result = _apply_display_hook(ref.name, ref.args, display_function_result, fallback=function_result)
+        _print_tool_completed(agent, index, tool_duration, _display_result)
     return True
 
 

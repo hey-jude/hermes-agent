@@ -107,6 +107,9 @@ _install_plugin_debug_handler()
 
 VALID_HOOKS: Set[str] = {
     "pre_tool_call", "post_tool_call", "transform_terminal_output", "transform_tool_result",
+    # format_tool_result_for_display: display-only reformat (LLM payload unchanged).
+    # Plugins return a string to replace display text, or None to leave unchanged.
+    "format_tool_result_for_display",
     # transform_llm_output: return a replacement string (first non-None wins) or None.
     "transform_llm_output", "pre_llm_call", "post_llm_call",
     # Streaming observers (agent.plugin_stream_hooks), off the token path; payloads are immutable
