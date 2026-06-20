@@ -4920,6 +4920,23 @@ class TurnRunner:
                 from agent.display import get_tool_preview_max_len
                 _pl = get_tool_preview_max_len()
                 args_str = json.dumps(args, ensure_ascii=False, default=str)
+                # Allow plugins to reformat args display
+                try:
+                    from hermes_cli.plugins import has_hook, invoke_hook
+                    if has_hook("format_tool_result_for_display"):
+                        hook_results = invoke_hook(
+                            "format_tool_result_for_display",
+                            tool_name=tool_name,
+                            args=args,
+                            result=args_str,
+                            display_context="gateway_verbose_args",
+                        )
+                        for hook_result in hook_results:
+                            if isinstance(hook_result, str):
+                                args_str = hook_result
+                                break
+                except Exception:
+                    pass
                 # When tool_preview_length is 0 (default), don't truncate
                 # in verbose mode — the user explicitly asked for full
                 # detail.  Platform message-length limits handle the rest.

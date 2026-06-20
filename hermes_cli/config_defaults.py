@@ -812,6 +812,7 @@ DEFAULT_CONFIG = {
         "max_bytes": 50_000,
         "max_lines": 2000,
         "max_line_length": 2000,
+        "format": "json",  # json | yaml | text | compact — display format only, LLM unchanged
     },
 
     # Tool loop guardrails nudge models when they repeat failed or

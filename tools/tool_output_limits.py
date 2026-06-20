@@ -1,4 +1,4 @@
-"""Configurable tool-output truncation limits.
+"""Configurable tool-output truncation limits and display formatting.
 
 Ported from anomalyco/opencode PR #23770 (``feat(truncate): allow
 configuring tool output truncation limits``).
@@ -23,6 +23,7 @@ Example ``config.yaml``::
       max_bytes: 100000        # terminal output cap (chars)
       max_lines: 5000          # read_file pagination + truncation cap
       max_line_length: 2000    # per-line length cap before '... [truncated]'
+      format: yaml             # json | yaml | text | compact — display only
 
 The limits reader is defensive: any error (missing config file, invalid
 value type, etc.) falls back to the built-in defaults so tools never
@@ -31,6 +32,7 @@ fail because of a malformed config.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict
 
 # Hardcoded defaults — these match the pre-existing values, so adding
@@ -39,6 +41,8 @@ from typing import Any, Dict
 DEFAULT_MAX_BYTES = 50_000       # terminal_tool.MAX_OUTPUT_CHARS
 DEFAULT_MAX_LINES = 2000         # file_operations.MAX_LINES
 DEFAULT_MAX_LINE_LENGTH = 2000   # file_operations.MAX_LINE_LENGTH
+DEFAULT_FORMAT = "json"
+ALLOWED_FORMATS = frozenset({"json", "yaml", "text", "compact"})
 
 # Module-level cache — populated on first call.
 # Avoids repeated config file I/O on every tool call.
@@ -56,12 +60,19 @@ def _coerce_positive_int(value: Any, default: int) -> int:
     return iv
 
 
-def get_tool_output_limits() -> Dict[str, int]:
+def _resolve_format(value: Any) -> str:
+    """Return ``value`` as a valid format string, or ``DEFAULT_FORMAT``."""
+    if isinstance(value, str) and value in ALLOWED_FORMATS:
+        return value
+    return DEFAULT_FORMAT
+
+
+def get_tool_output_limits() -> Dict[str, Any]:
     """Return resolved tool-output limits, reading ``tool_output`` from config.
 
-    Keys: ``max_bytes``, ``max_lines``, ``max_line_length``. Missing or
-    invalid entries fall through to the ``DEFAULT_*`` constants. This
-    function NEVER raises.
+    Keys: ``max_bytes``, ``max_lines``, ``max_line_length``, ``format``.
+    Missing or invalid entries fall through to the ``DEFAULT_*`` constants.
+    This function NEVER raises.
 
     Result is cached for the process lifetime to avoid repeated disk I/O
     on every tool call. Call ``_reset_tool_output_limits_cache()`` in
@@ -85,6 +96,7 @@ def get_tool_output_limits() -> Dict[str, int]:
         "max_line_length": _coerce_positive_int(
             section.get("max_line_length"), DEFAULT_MAX_LINE_LENGTH
         ),
+        "format": _resolve_format(section.get("format")),
     }
     return _cached_limits
 
@@ -108,3 +120,64 @@ def get_max_lines() -> int:
 def get_max_line_length() -> int:
     """Shortcut for file-ops callers that only need the per-line cap."""
     return get_tool_output_limits()["max_line_length"]
+
+
+def get_tool_output_format() -> str:
+    """Shortcut for display callers that only need the format setting."""
+    return get_tool_output_limits()["format"]
+
+
+def format_tool_result_for_display(result: Any, fmt: str | None = None) -> str:
+    """Format a tool result for user display. Do NOT use for LLM paths."""
+    if fmt is None:
+        fmt = get_tool_output_format()
+
+    if fmt == "yaml":
+        try:
+            import yaml
+        except ImportError:
+            return str(result) if isinstance(result, str) else json.dumps(result, indent=2, default=str)
+        if isinstance(result, str):
+            try:
+                parsed = json.loads(result)
+                return yaml.dump(parsed, default_flow_style=False, allow_unicode=True, width=120)
+            except (json.JSONDecodeError, TypeError):
+                return result
+        return yaml.dump(result, default_flow_style=False, allow_unicode=True, width=120)
+
+    if fmt == "compact":
+        if isinstance(result, str):
+            try:
+                parsed = json.loads(result)
+                return json.dumps(parsed, indent=2, default=str)
+            except (json.JSONDecodeError, TypeError):
+                return result
+        return json.dumps(result, indent=2, default=str)
+
+    if fmt == "text":
+        return str(result)
+
+    # json (default)
+    return str(result) if isinstance(result, str) else json.dumps(result, indent=2, default=str)
+
+
+def format_args_for_display(args: dict, fmt: str | None = None) -> str:
+    """Format tool call arguments for user display. Do NOT use for LLM paths."""
+    if fmt is None:
+        fmt = get_tool_output_format()
+
+    if fmt == "yaml":
+        try:
+            import yaml
+        except ImportError:
+            return json.dumps(args, ensure_ascii=False, default=str)
+        return yaml.dump(args, default_flow_style=False, allow_unicode=True, width=120)
+
+    if fmt == "compact":
+        return json.dumps(args, indent=2, default=str)
+
+    if fmt == "text":
+        return str(args)
+
+    # json (default)
+    return json.dumps(args, ensure_ascii=False, default=str)
