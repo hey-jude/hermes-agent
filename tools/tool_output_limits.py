@@ -1,21 +1,54 @@
-"""Configurable tool-output truncation limits (``tool_output`` in config.yaml):
-``max_bytes`` (terminal output cap), ``max_lines`` (read_file pagination cap),
-``max_line_length`` (per-line cap before '... [truncated]'). Defaults equal the
-constants once hardcoded in terminal_tool / file_operations and the reader never
-raises, so behaviour is unchanged when the section is absent or malformed."""
+"""Configurable tool-output truncation limits and display formatting.
+
+Ported from anomalyco/opencode PR #23770 (``feat(truncate): allow
+configuring tool output truncation limits``).
+
+OpenCode hardcoded ``MAX_LINES = 2000`` and ``MAX_BYTES = 50 * 1024``
+as tool-output truncation thresholds. Hermes-agent had the same
+hardcoded constants in two places:
+
+* ``tools/terminal_tool.py`` — ``MAX_OUTPUT_CHARS = 50000`` (terminal
+  stdout/stderr cap)
+* ``tools/file_operations.py`` — ``MAX_LINES = 2000`` /
+  ``MAX_LINE_LENGTH = 2000`` (read_file pagination cap + per-line cap)
+
+This module centralises those values behind a single config section
+(``tool_output`` in ``config.yaml``) so power users can tune them
+without patching the source. The existing hardcoded numbers remain as
+defaults, so behaviour is unchanged when the config key is absent.
+
+Example ``config.yaml``::
+
+    tool_output:
+      max_bytes: 100000        # terminal output cap (chars)
+      max_lines: 5000          # read_file pagination + truncation cap
+      max_line_length: 2000    # per-line length cap before '... [truncated]'
+      format: yaml             # json | yaml | text | compact — display only
+
+The limits reader is defensive: any error (missing config file, invalid
+value type, etc.) falls back to the built-in defaults so tools never
+fail because of a malformed config.
+"""
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict
 
 from hermes_constants import hermes_home_key
 
+# Hardcoded defaults — these match the pre-existing values, so adding
+# this module is behaviour-preserving for users who don't set
+# ``tool_output`` in config.yaml.
 DEFAULT_MAX_BYTES = 50_000       # terminal_tool.MAX_OUTPUT_CHARS
 DEFAULT_MAX_LINES = 2000         # file_operations.MAX_LINES
 DEFAULT_MAX_LINE_LENGTH = 2000   # file_operations.MAX_LINE_LENGTH
+DEFAULT_FORMAT = "json"
+ALLOWED_FORMATS = frozenset({"json", "yaml", "text", "compact"})
+
 # Keyed by profile home: the multiplexed gateway serves every profile from one process, so a
 # single slot would hand the launch profile's limits to every other profile.
-_cached_limits: Dict[str, Dict[str, int]] = {}
+_cached_limits: Dict[str, Dict[str, Any]] = {}
 
 
 def _coerce_int(value: Any, default: int, minimum: int) -> int:
@@ -31,8 +64,15 @@ def _coerce_positive_int(value: Any, default: int) -> int:
     return _coerce_int(value, default, 1)  # positive int, or ``default`` on any issue
 
 
-def get_tool_output_limits() -> Dict[str, int]:
-    """Resolved ``{max_bytes, max_lines, max_line_length}``; never raises. Cached per profile
+def _resolve_format(value: Any) -> str:
+    """Return ``value`` as a valid format string, or ``DEFAULT_FORMAT``."""
+    if isinstance(value, str) and value in ALLOWED_FORMATS:
+        return value
+    return DEFAULT_FORMAT
+
+
+def get_tool_output_limits() -> Dict[str, Any]:
+    """Resolved ``{max_bytes, max_lines, max_line_length, format}``; never raises. Cached per profile
     home for the process — ``_reset_tool_output_limits_cache()`` forces a fresh read."""
     key = hermes_home_key()
     cached = _cached_limits.get(key)
@@ -50,7 +90,10 @@ def get_tool_output_limits() -> Dict[str, int]:
         "max_bytes": _coerce_positive_int(section.get("max_bytes"), DEFAULT_MAX_BYTES),
         "max_lines": _coerce_positive_int(section.get("max_lines"), DEFAULT_MAX_LINES),
         "max_line_length": _coerce_positive_int(
-            section.get("max_line_length"), DEFAULT_MAX_LINE_LENGTH)}
+            section.get("max_line_length"), DEFAULT_MAX_LINE_LENGTH
+        ),
+        "format": _resolve_format(section.get("format")),
+    }
     return limits
 
 
@@ -59,6 +102,77 @@ def _reset_tool_output_limits_cache() -> None:
     _cached_limits.clear()
 
 
-def get_max_bytes() -> int: return get_tool_output_limits()["max_bytes"]
-def get_max_lines() -> int: return get_tool_output_limits()["max_lines"]
-def get_max_line_length() -> int: return get_tool_output_limits()["max_line_length"]
+def get_max_bytes() -> int:
+    """Shortcut for terminal-tool callers that only need the byte cap."""
+    return get_tool_output_limits()["max_bytes"]
+
+
+def get_max_lines() -> int:
+    """Shortcut for file-ops callers that only need the line cap."""
+    return get_tool_output_limits()["max_lines"]
+
+
+def get_max_line_length() -> int:
+    """Shortcut for file-ops callers that only need the per-line cap."""
+    return get_tool_output_limits()["max_line_length"]
+
+
+def get_tool_output_format() -> str:
+    """Shortcut for display callers that only need the format setting."""
+    return get_tool_output_limits()["format"]
+
+
+def format_tool_result_for_display(result: Any, fmt: str | None = None) -> str:
+    """Format a tool result for user display. Do NOT use for LLM paths."""
+    if fmt is None:
+        fmt = get_tool_output_format()
+
+    if fmt == "yaml":
+        try:
+            import yaml
+        except ImportError:
+            return str(result) if isinstance(result, str) else json.dumps(result, indent=2, default=str)
+        if isinstance(result, str):
+            try:
+                parsed = json.loads(result)
+                return yaml.dump(parsed, default_flow_style=False, allow_unicode=True, width=120)
+            except (json.JSONDecodeError, TypeError):
+                return result
+        return yaml.dump(result, default_flow_style=False, allow_unicode=True, width=120)
+
+    if fmt == "compact":
+        if isinstance(result, str):
+            try:
+                parsed = json.loads(result)
+                return json.dumps(parsed, indent=2, default=str)
+            except (json.JSONDecodeError, TypeError):
+                return result
+        return json.dumps(result, indent=2, default=str)
+
+    if fmt == "text":
+        return str(result)
+
+    # json (default)
+    return str(result) if isinstance(result, str) else json.dumps(result, indent=2, default=str)
+
+
+def format_args_for_display(args: dict, fmt: str | None = None) -> str:
+    """Format tool call arguments for user display. Do NOT use for LLM paths."""
+    if fmt is None:
+        fmt = get_tool_output_format()
+
+    if fmt == "yaml":
+        try:
+            import yaml
+        except ImportError:
+            return json.dumps(args, ensure_ascii=False, default=str)
+        return yaml.dump(args, default_flow_style=False, allow_unicode=True, width=120)
+
+    if fmt == "compact":
+        return json.dumps(args, indent=2, default=str)
+
+    if fmt == "text":
+        return str(args)
+
+    # json (default)
+    return json.dumps(args, ensure_ascii=False, default=str)
