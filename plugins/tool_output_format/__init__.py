@@ -95,14 +95,33 @@ def _on_format_tool_result_for_display(
     if fmt == "json":
         return None
 
+    logger.debug(
+        "format_tool_result_for_display: tool=%s context=%s fmt=%s",
+        tool_name,
+        display_context or "cli",
+        fmt,
+    )
+
     # For gateway verbose args, format the args dict
     if display_context == "gateway_verbose_args" and args is not None:
-        return _format_args(args, fmt=fmt)
+        formatted = _format_args(args, fmt=fmt)
+        logger.debug(
+            "format_tool_result_for_display: formatted args for %s (%d chars)",
+            tool_name,
+            len(formatted),
+        )
+        return formatted
 
     # For CLI display, extract terminal output field then format
     if result is not None:
         payload = _extract_display_payload(result, tool_name)
-        return _format_result(payload, fmt=fmt)
+        formatted = _format_result(payload, fmt=fmt)
+        logger.debug(
+            "format_tool_result_for_display: formatted result for %s (%d chars)",
+            tool_name,
+            len(formatted),
+        )
+        return formatted
 
     return None
 
@@ -110,4 +129,8 @@ def _on_format_tool_result_for_display(
 def register(ctx: Any) -> None:
     """Register the plugin with the PluginContext."""
     ctx.register_hook("format_tool_result_for_display", _on_format_tool_result_for_display)
-    logger.debug("tool-output-format plugin registered")
+    fmt = get_tool_output_format()
+    logger.info(
+        "tool-output-format plugin registered (format=%s)",
+        fmt,
+    )
