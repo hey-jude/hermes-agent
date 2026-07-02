@@ -6002,6 +6002,11 @@ class DiscordAdapter(BasePlatformAdapter):
             arg = f" {page}" if page else ""
             await self._run_simple_slash(interaction, f"/commands{arg}".strip())
 
+        @tree.command(name="queue", description="Queue a prompt for the next turn (doesn't interrupt)")
+        @discord.app_commands.describe(prompt="Prompt to queue")
+        async def slash_queue(interaction: discord.Interaction, prompt: str):
+            await self._run_simple_slash(interaction, f"/queue {prompt}".strip(), "Queued for the next turn.")
+
         @tree.command(name="verbose", description="Show or set tool progress display mode")
         @discord.app_commands.describe(mode="Mode: off, new, all, verbose (leave empty to show current)")
         async def slash_verbose(interaction: discord.Interaction, mode: str = None):
@@ -6028,10 +6033,7 @@ class DiscordAdapter(BasePlatformAdapter):
             # so a rejected invoker can receive an ephemeral rejection.
             await self._handle_thread_create_slash(interaction, name, message, auto_archive_duration)
 
-        @tree.command(name="queue", description="Queue a prompt for the next turn (doesn't interrupt)")
-        @discord.app_commands.describe(prompt="The prompt to queue")
-        async def slash_queue(interaction: discord.Interaction, prompt: str):
-            await self._run_simple_slash(interaction, f"/queue {prompt}", "Queued for the next turn.")
+
 
         @tree.command(name="bg", description="Run a prompt in a separate background session")
         @discord.app_commands.describe(prompt="The prompt to run in the background")
