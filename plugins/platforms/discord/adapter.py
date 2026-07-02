@@ -6002,11 +6002,6 @@ class DiscordAdapter(BasePlatformAdapter):
             arg = f" {page}" if page else ""
             await self._run_simple_slash(interaction, f"/commands{arg}".strip())
 
-        @tree.command(name="queue", description="Queue a prompt for the next turn (doesn't interrupt)")
-        @discord.app_commands.describe(prompt="Prompt to queue")
-        async def slash_queue(interaction: discord.Interaction, prompt: str):
-            await self._run_simple_slash(interaction, f"/queue {prompt}".strip())
-
         @tree.command(name="verbose", description="Show or set tool progress display mode")
         @discord.app_commands.describe(mode="Mode: off, new, all, verbose (leave empty to show current)")
         async def slash_verbose(interaction: discord.Interaction, mode: str = None):
