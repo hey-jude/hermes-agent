@@ -263,3 +263,128 @@ class TestTerminalOutputExtraction:
                 tool_name="terminal", result=terminal_result
             )
         assert result == "hello world"
+
+
+# --- Part 1: literal block scalar for multi-line YAML values ---
+
+class TestLiteralBlockScalar:
+    def test_multiline_value_uses_block_scalar(self):
+        args = {"content": "def f():\n    return 1\n", "path": "/tmp/x.py"}
+        out = tol.format_args_for_display(args, fmt="yaml")
+        assert "|" in out  # block scalar indicator
+        assert '"def f()' not in out  # not double-quoted one-liner
+        assert "def f():" in out
+        assert "    return 1" in out
+
+    def test_single_line_value_stays_inline(self):
+        args = {"path": "/tmp/x.py"}
+        out = tol.format_args_for_display(args, fmt="yaml")
+        assert "|" not in out.split("\n", 1)[0]
+
+    def test_nested_multiline_dict_blockifies(self):
+        result = {"content": "a\nb"}
+        out = tol.format_tool_result_for_display(result, fmt="yaml")
+        assert "|" in out
+        assert "a" in out and "b" in out
+
+
+# --- Part 2: boxed-tool fenced progress display (plugin) ---
+
+class TestBoxedToolFence:
+    def test_write_file_fenced(self):
+        from plugins.tool_output_format import _on_format_tool_result_for_display
+        args = {"content": "def f():\n    return 1\n", "path": "/tmp/x.py"}
+        with patch("plugins.tool_output_format.get_tool_output_format", return_value="yaml"):
+            out = _on_format_tool_result_for_display(
+                tool_name="write_file",
+                args=args,
+                display_context="gateway_progress",
+            )
+        assert out is not None
+        assert "content:" in out
+        assert out.count("```") >= 2
+        assert "def f():" in out
+
+    def test_patch_fenced_two_fields(self):
+        from plugins.tool_output_format import _on_format_tool_result_for_display
+        args = {"old_string": "a\nb", "new_string": "c\nd"}
+        with patch("plugins.tool_output_format.get_tool_output_format", return_value="yaml"):
+            out = _on_format_tool_result_for_display(
+                tool_name="patch",
+                args=args,
+                display_context="gateway_progress",
+            )
+        assert out is not None
+        assert "old_string:" in out
+        assert "new_string:" in out
+        assert out.count("```") == 4
+
+    def test_non_fenced_args_shown_above_fence(self):
+        from plugins.tool_output_format import _on_format_tool_result_for_display
+        args = {
+            "content": "def f():\n    return 1\n",
+            "path": "/tmp/x.py",
+            "mode": "overwrite",
+            "replace_all": False,
+        }
+        with patch("plugins.tool_output_format.get_tool_output_format", return_value="yaml"):
+            out = _on_format_tool_result_for_display(
+                tool_name="write_file",
+                args=args,
+                display_context="gateway_progress",
+            )
+        assert out is not None
+        # Boxed field still fenced
+        assert "content:" in out
+        assert out.count("```") >= 2
+        # Non-fenced args surfaced below the fence
+        assert "path: `/tmp/x.py`" in out
+        assert "mode: `overwrite`" in out
+        assert "replace_all: False" in out
+        assert "replace_all: False" in out
+        assert out.index("path: `/tmp/x.py`") < out.index("```")
+
+    def test_patch_mode_renders_patch_field_as_fenced(self):
+        from plugins.tool_output_format import _on_format_tool_result_for_display
+
+        patch_text = (
+            "*** Begin Patch\n*** Update File: a.py\n@@\n-old\n+new\n*** End Patch"
+        )
+        args = {"mode": "patch", "patch": patch_text}
+        with patch(
+            "plugins.tool_output_format.get_tool_output_format",
+            return_value="yaml",
+        ):
+            out = _on_format_tool_result_for_display(
+                tool_name="patch",
+                args=args,
+                display_context="gateway_progress",
+            )
+        assert out is not None
+        # Full patch payload must be a fenced block, NOT collapsed into an
+        # inline-code summary line.
+        assert "```" in out
+        assert "*** Begin Patch" in out
+        # mode summary sits above the fenced patch payload.
+        assert "mode: `patch`" in out
+        assert out.index("mode: `patch`") < out.index("*** Begin Patch")
+
+    def test_non_boxed_tool_returns_none(self):
+        from plugins.tool_output_format import _on_format_tool_result_for_display
+        with patch("plugins.tool_output_format.get_tool_output_format", return_value="yaml"):
+            out = _on_format_tool_result_for_display(
+                tool_name="search_files",
+                args={"pattern": "x"},
+                display_context="gateway_progress",
+            )
+        assert out is None
+
+    def test_terminal_not_boxed_in_progress(self):
+        from plugins.tool_output_format import _on_format_tool_result_for_display
+        with patch("plugins.tool_output_format.get_tool_output_format", return_value="yaml"):
+            out = _on_format_tool_result_for_display(
+                tool_name="terminal",
+                args={"command": "ls"},
+                display_context="gateway_progress",
+            )
+        assert out is None

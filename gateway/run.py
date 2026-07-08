@@ -4909,6 +4909,31 @@ class TurnRunner:
                 _cmd_short = _cmd_short + " ..."
             _code_block_short = f"{_block_header}```\n{_cmd_short}\n```"
 
+        # Allow plugins to reformat progress display for boxed tools
+        # (write_file/execute_code/patch args as fenced code blocks),
+        # mirroring the terminal command fence above.  A plugin returns a
+        # string to override the progress message, or None to fall through
+        # to the normal preview path.  Keeps the gateway logic minimal —
+        # all boxed-tool formatting lives in the plugin.
+        try:
+            from hermes_cli.plugins import has_hook, invoke_hook
+            if has_hook("format_tool_result_for_display"):
+                _hook_results = invoke_hook(
+                    "format_tool_result_for_display",
+                    tool_name=tool_name,
+                    args=args,
+                    display_context="gateway_progress",
+                )
+                for _hr in _hook_results:
+                    if isinstance(_hr, str):
+                        # Prepend the same "{emoji} {tool_name}" label the
+                        # terminal command path uses, so boxed tools render
+                        # consistently with a tool-name header.
+                        ctx.progress_queue.put(f"{emoji} {tool_name}\n{_hr}")
+                        return
+        except Exception:
+            pass
+
         # Verbose mode: show detailed arguments, respects tool_preview_length
         if ctx.progress_mode == "verbose":
             if _code_block_full is not None:
