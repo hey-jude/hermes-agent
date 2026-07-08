@@ -63,6 +63,74 @@ def _normalize_newlines(text: str) -> str:
     return re.sub(r"(\\+)([a-zA-Z])", _replace_escape, text)
 
 
+# Tools whose argument values should be wrapped in a fenced code block
+# for gateway progress display (Discord/Telegram markdown).  Mirrors how
+# the gateway already wraps a ``terminal`` command in a bare fence.
+#
+# Boxed fields are emitted as a fenced block per field so multi-line content
+# (write_file content, execute_code code, patch old/new_string) renders in
+# monospace instead of a truncated one-line preview.
+BOXED_TOOLS = {
+    "write_file": ["content"],
+    "execute_code": ["code"],
+    "patch": ["old_string", "new_string", "patch"],
+}
+
+
+def _boxed_fence(tool_name: str, args: Any) -> Optional[str]:
+    """Return a fenced-block string for boxed tools, or None.
+
+    Used by the ``gateway_progress`` display context so Discord/Telegram
+    render multi-line tool args in a markdown code block.  Boxed fields
+    (write_file ``content``, execute_code ``code``, patch ``old_string``/
+    ``new_string``/``patch``) each become their own fenced block.  Remaining
+    args
+    (path, mode, replace_all, ...) are appended ABOVE the fenced block as
+    single-line summary lines so the user sees where/what the tool targets
+    before the multi-line payload.  Non-boxed tools or non-dict args return
+    None (caller keeps its normal progress flow).
+    """
+    fields = BOXED_TOOLS.get(tool_name)
+    if not fields or not isinstance(args, dict):
+        return None
+    parts: list[str] = []
+    for field in fields:
+        val = args.get(field)
+        if not isinstance(val, str):
+            continue
+        body = val.rstrip("\n")
+        if not body:
+            continue
+        parts.append(f"{field}:")
+        parts.append("```")
+        parts.append(body)
+        parts.append("```")
+    # Non-fenced args (path, mode, replace_all, ...) were previously
+    # dropped entirely from the progress display.  Surface them above the
+    # fenced block so the user sees the full tool call, not just the
+    # multi-line payload.  Only emit when at least one boxed field was
+    # actually rendered — otherwise (e.g. a malformed call where every
+    # boxed field is empty) we'd collapse a huge value into a single
+    # inline-code line and produce an unreadable progress message.
+    extra: list[str] = []
+    for key, val in args.items():
+        if key in fields or val is None:
+            continue
+        if isinstance(val, str):
+            # Collapse to a single line, wrap in backticks so path-like
+            # values render as inline code in Discord/Telegram.  Escape
+            # embedded backticks by widening the fence (``...``) so a path
+            # containing a backtick can't break markdown rendering.
+            shown = " ".join(val.split())
+            wrapped = f"``{shown}``" if "`" in shown else f"`{shown}`"
+            extra.append(f"{key}: {wrapped}")
+        else:
+            extra.append(f"{key}: {val}")
+    if extra and parts:
+        parts = ["\n".join(extra)] + parts
+    return "\n".join(parts) if parts else None
+
+
 def _extract_display_payload(result: Any, tool_name: str) -> Any:
     """Extract the display-relevant part of a tool result.
 
@@ -101,6 +169,22 @@ def _on_format_tool_result_for_display(
         display_context or "cli",
         fmt,
     )
+
+    # For gateway progress display, return the boxed tool's args as a fenced
+    # block (without a header — the gateway adds the "{emoji} {tool_name}"
+    # label, mirroring the terminal command path).  Returns the fenced string
+    # (caller prepends the tool label and sends it) or None so non-boxed tools
+    # keep their default short preview.
+    if display_context == "gateway_progress":
+        fenced = _boxed_fence(tool_name, args)
+        if fenced is not None:
+            logger.debug(
+                "format_tool_result_for_display: boxed fence for %s (%d chars)",
+                tool_name,
+                len(fenced),
+            )
+            return fenced
+        return None
 
     # For gateway verbose args, format the args dict
     if display_context == "gateway_verbose_args" and args is not None:
