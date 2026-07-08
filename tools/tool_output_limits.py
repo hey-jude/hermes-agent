@@ -46,6 +46,49 @@ DEFAULT_MAX_LINE_LENGTH = 2000   # file_operations.MAX_LINE_LENGTH
 DEFAULT_FORMAT = "json"
 ALLOWED_FORMATS = frozenset({"json", "yaml", "text", "compact"})
 
+# Literal-block scalar support for YAML display.
+#
+# PyYAML emits strings containing newlines as double-quoted `"a\nb"` by
+# default, which is unreadable for multi-line tool args (write_file content,
+# execute_code code, patch old/new_string).  Wrapping such strings in
+# ``_LiteralStr`` makes PyYAML emit a literal block scalar (``|``) instead,
+# preserving real line breaks.
+class _LiteralStr(str):
+    """Marker type — PyYAML emits it as a literal block scalar (``|``)."""
+
+
+def _literal_representer(dumper, data):
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+
+
+def _register_yaml_literal() -> None:
+    """Register the ``_LiteralStr`` representer once (idempotent)."""
+    try:
+        import yaml
+        yaml.add_representer(_LiteralStr, _literal_representer)
+    except (ImportError, TypeError):
+        pass
+
+
+_register_yaml_literal()
+
+
+def _blockify(obj: Any) -> Any:
+    """Recursively wrap any string containing a newline in ``_LiteralStr``.
+
+    Applied before ``yaml.dump`` so multi-line values render as literal
+    block scalars instead of escaped ``"\\n"`` one-liners.  Non-str and
+    newline-free str values pass through unchanged.
+    """
+    if isinstance(obj, str):
+        return _LiteralStr(obj) if "\n" in obj else obj
+    if isinstance(obj, dict):
+        return {k: _blockify(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return type(obj)(_blockify(v) for v in obj)
+    return obj
+
+
 # Keyed by profile home: the multiplexed gateway serves every profile from one process, so a
 # single slot would hand the launch profile's limits to every other profile.
 _cached_limits: Dict[str, Dict[str, Any]] = {}
@@ -135,10 +178,10 @@ def format_tool_result_for_display(result: Any, fmt: str | None = None) -> str:
         if isinstance(result, str):
             try:
                 parsed = json.loads(result)
-                return yaml.dump(parsed, default_flow_style=False, allow_unicode=True, width=120)
+                return yaml.dump(_blockify(parsed), default_flow_style=False, allow_unicode=True, width=120)
             except (json.JSONDecodeError, TypeError):
                 return result
-        return yaml.dump(result, default_flow_style=False, allow_unicode=True, width=120)
+        return yaml.dump(_blockify(result), default_flow_style=False, allow_unicode=True, width=120)
 
     if fmt == "compact":
         if isinstance(result, str):
@@ -166,7 +209,7 @@ def format_args_for_display(args: dict, fmt: str | None = None) -> str:
             import yaml
         except ImportError:
             return json.dumps(args, ensure_ascii=False, default=str)
-        return yaml.dump(args, default_flow_style=False, allow_unicode=True, width=120)
+        return yaml.dump(_blockify(args), default_flow_style=False, allow_unicode=True, width=120)
 
     if fmt == "compact":
         return json.dumps(args, indent=2, default=str)
