@@ -268,6 +268,23 @@ class TurnRunner:
         except Exception:
             adapter = None
         code_full, code_short = self._progress_terminal_blocks(adapter, tool_name, args, emoji)
+        # Allow plugins to reformat progress display for boxed tools
+        # (write_file/execute_code/patch args as fenced code blocks),
+        # mirroring the terminal command fence above.
+        try:
+            from hermes_cli.plugins import has_hook, invoke_hook
+            if has_hook("format_tool_result_for_display"):
+                for hr in invoke_hook(
+                    "format_tool_result_for_display",
+                    tool_name=tool_name,
+                    args=args,
+                    display_context="gateway_progress",
+                ):
+                    if isinstance(hr, str):
+                        ctx.progress_queue.put(f"{emoji} {tool_name}\n{hr}")
+                        return None
+        except Exception:
+            pass
         verbose = ctx.progress_mode == "verbose"
         code = code_full if verbose else code_short
         ctx.last_was_terminal_block[0] = code is not None
