@@ -104,7 +104,8 @@ def _coerce_int(value: Any, default: int, minimum: int) -> int:
 
 
 def _coerce_positive_int(value: Any, default: int) -> int:
-    return _coerce_int(value, default, 1)  # positive int, or ``default`` on any issue
+    """Return ``value`` as a positive int, or ``default`` on any issue."""
+    return _coerce_int(value, default, 1)
 
 
 def _resolve_format(value: Any) -> str:
