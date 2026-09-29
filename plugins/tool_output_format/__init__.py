@@ -44,6 +44,10 @@ def _normalize_newlines(text: str) -> str:
     ``'line1\\nline2'``.  This helper makes them render correctly in
     the CLI display without touching the LLM-facing content.
 
+    Only ``n`` and ``t`` are converted: any other backslash-letter sequence
+    (``\\r``, ``\\p``, Windows paths like ``C:\\path``) is left untouched so
+    the backslash is never eaten.
+
     Handles ``\\\\n`` (escaped-backslash + n) correctly: the ``\\\\``
     becomes a single ``\\`` and the trailing ``n`` is preserved literally.
     """
@@ -53,14 +57,12 @@ def _normalize_newlines(text: str) -> str:
         if n_bs % 2 == 1:
             # Odd backslashes: last one is part of the escape sequence.
             # Pairs before it are literal backslashes.
-            prefix = "\\" * (n_bs // 2)
-            replacement = _ESCAPE_MAP.get(letter)
-            return prefix + (replacement if replacement is not None else letter)
+            return "\\" * (n_bs // 2) + _ESCAPE_MAP[letter]
         else:
             # Even backslashes: all are literal, none part of an escape.
             return "\\" * (n_bs // 2) + letter
 
-    return re.sub(r"(\\+)([a-zA-Z])", _replace_escape, text)
+    return re.sub(r"(\\+)([nt])", _replace_escape, text)
 
 
 # Tools whose argument values should be wrapped in a fenced code block

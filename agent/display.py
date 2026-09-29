@@ -139,21 +139,12 @@ def verbose_tool_args_text(args: dict, max_len: int, code_block: bool, tool_name
     import json
     text = json.dumps(args, ensure_ascii=False, default=str)
     # Display-only hook (LLM payload unchanged).
-    try:
-        from hermes_cli.plugins import has_hook, invoke_hook
-        if has_hook("format_tool_result_for_display"):
-            for hook_result in invoke_hook(
-                "format_tool_result_for_display",
-                tool_name=tool_name,
-                args=args,
-                result=text,
-                display_context="gateway_verbose_args",
-            ):
-                if isinstance(hook_result, str):
-                    text = hook_result
-                    break
-    except Exception:
-        pass
+    from hermes_cli.plugins import apply_display_hook
+    replaced = apply_display_hook(
+        tool_name, args=args, result=text, display_context="gateway_verbose_args",
+    )
+    if replaced is not None:
+        text = replaced
     if max_len > 0 and len(text) > max_len:
         text = text[:max_len - 3] + "..."
     if not code_block or "```" in text:

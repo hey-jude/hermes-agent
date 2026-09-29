@@ -193,6 +193,17 @@ class TestNormalizeNewlines:
         # \\\\n means literal backslash followed by n, not newline
         assert _normalize_newlines("path\\\\nfile") == "path\\nfile"
 
+    def test_other_escapes_kept_verbatim(self):
+        from plugins.tool_output_format import _normalize_newlines
+        # Only n/t convert: \r, \p and friends must keep their backslash.
+        # (Note: "C:\path\to" DOES change — its "\to" is a genuine \t escape.)
+        assert _normalize_newlines("a\\r\\nb") == "a\\r\nb"
+        assert _normalize_newlines("C:\\path\\dir") == "C:\\path\\dir"
+
+    def test_uppercase_letters_untouched(self):
+        from plugins.tool_output_format import _normalize_newlines
+        assert _normalize_newlines("a\\Nb") == "a\\Nb"
+
 
 class TestTerminalOutputExtraction:
     """Terminal tool returns {"output": ..., "exit_code": ..., "error": ...}
