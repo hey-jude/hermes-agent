@@ -35,6 +35,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict
 
+import hermes_yaml
 from hermes_constants import hermes_home_key
 
 # Hardcoded defaults — these match the pre-existing values, so adding
@@ -48,13 +49,13 @@ ALLOWED_FORMATS = frozenset({"json", "yaml", "text", "compact"})
 
 # Literal-block scalar support for YAML display.
 #
-# PyYAML emits strings containing newlines as double-quoted `"a\nb"` by
-# default, which is unreadable for multi-line tool args (write_file content,
-# execute_code code, patch old/new_string).  Wrapping such strings in
-# ``_LiteralStr`` makes PyYAML emit a literal block scalar (``|``) instead,
+# The emitter prints strings containing newlines as double-quoted `"a\nb"`
+# by default, which is unreadable for multi-line tool args (write_file
+# content, execute_code code, patch old/new_string).  Wrapping such strings
+# in ``_LiteralStr`` makes it emit a literal block scalar (``|``) instead,
 # preserving real line breaks.
 class _LiteralStr(str):
-    """Marker type — PyYAML emits it as a literal block scalar (``|``)."""
+    """Marker type — the emitter renders it as a literal block scalar (``|``)."""
 
 
 def _literal_representer(dumper, data):
@@ -62,22 +63,34 @@ def _literal_representer(dumper, data):
 
 
 def _register_yaml_literal() -> None:
-    """Register the ``_LiteralStr`` representer once (idempotent)."""
-    try:
-        import yaml
-        yaml.add_representer(_LiteralStr, _literal_representer)
-    except (ImportError, TypeError):
-        pass
+    """Register the ``_LiteralStr`` representer once (idempotent).
+
+    ``YAML(typ="safe").Representer`` is the shared
+    ``ruamel.yaml.representer.SafeRepresenter`` class, so one registration
+    covers every safe dump in the process — including ``hermes_yaml``'s.
+    """
+    from ruamel.yaml import YAML
+
+    YAML(typ="safe").Representer.add_representer(_LiteralStr, _literal_representer)
 
 
 _register_yaml_literal()
 
 
+def _yaml_dump(obj: Any) -> str:
+    """Block-style, Unicode-preserving YAML for display.
+
+    First-party YAML is ruamel-only since ``284dbaf537``; PyYAML is no longer
+    a dependency of the application.
+    """
+    return hermes_yaml.safe_dump(obj, default_flow_style=False, allow_unicode=True, width=120)
+
+
 def _blockify(obj: Any) -> Any:
     """Recursively wrap any string containing a newline in ``_LiteralStr``.
 
-    Applied before ``yaml.dump`` so multi-line values render as literal
-    block scalars instead of escaped ``"\\n"`` one-liners.  Non-str and
+    Applied before dumping so multi-line values render as literal block
+    scalars instead of escaped ``"\\n"`` one-liners.  Non-str and
     newline-free str values pass through unchanged.
     """
     if isinstance(obj, str):
@@ -172,17 +185,13 @@ def format_tool_result_for_display(result: Any, fmt: str | None = None) -> str:
         fmt = get_tool_output_format()
 
     if fmt == "yaml":
-        try:
-            import yaml
-        except ImportError:
-            return str(result) if isinstance(result, str) else json.dumps(result, indent=2, default=str)
         if isinstance(result, str):
             try:
                 parsed = json.loads(result)
-                return yaml.dump(_blockify(parsed), default_flow_style=False, allow_unicode=True, width=120)
             except (json.JSONDecodeError, TypeError):
                 return result
-        return yaml.dump(_blockify(result), default_flow_style=False, allow_unicode=True, width=120)
+            return _yaml_dump(_blockify(parsed))
+        return _yaml_dump(_blockify(result))
 
     if fmt == "compact":
         if isinstance(result, str):
@@ -206,11 +215,7 @@ def format_args_for_display(args: dict, fmt: str | None = None) -> str:
         fmt = get_tool_output_format()
 
     if fmt == "yaml":
-        try:
-            import yaml
-        except ImportError:
-            return json.dumps(args, ensure_ascii=False, default=str)
-        return yaml.dump(_blockify(args), default_flow_style=False, allow_unicode=True, width=120)
+        return _yaml_dump(_blockify(args))
 
     if fmt == "compact":
         return json.dumps(args, indent=2, default=str)
