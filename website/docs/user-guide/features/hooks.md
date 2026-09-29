@@ -452,6 +452,7 @@ Payload fields below are the exact event-specific fields supplied by each call s
 | `post_tool_call` | Observer | After blocked, error, or successful result; return ignored. | `tool_name`, `args`, `result`, `task_id`, `session_id`, `tool_call_id`, `turn_id`, `api_request_id`, `duration_ms`, `status`, `error_type`, `error_message`, `middleware_trace` | Result/error text may contain arbitrary tool or user content and secrets. |
 | `transform_tool_result` | Transform | After `post_tool_call`, before conversation append; first string replaces the result. | `tool_name`, `args`, `result`, `task_id`, `session_id`, `tool_call_id`, `turn_id`, `api_request_id`, `duration_ms`, `status`, `error_type`, `error_message` | Exposes the full model-bound result and arguments. |
 | `transform_terminal_output` | Transform | After bounded foreground process capture, before final output limiting; first string replaces output. | `command`, `output`, `returncode`, `task_id`, `env_type` | Command/output may contain credentials. |
+| [`format_tool_result_for_display`](#format_tool_result_for_display) | Transform (display-only) | On user-facing display paths (CLI tool completion, gateway progress/verbose); first string replaces the display text, LLM payload unchanged. | `tool_name`, `args`, `result`, `display_context` | Same content as the displayed tool call/result; may contain secrets. |
 | `pre_transcription` | Transform | Fired by the STT dispatcher after provider resolution and before any backend (built-in, command-type, or plugin-registered) is invoked; dict results are applied in registration order, last-writer-wins per field (`prompt`, `language`, `model`; `file_path` is read-only). | `file_path`, `provider`, `model`, `language`, `prompt`, `source` | The final prompt is uploaded to the configured STT provider with the audio — keep secrets out of hook returns. |
 | `pre_llm_call` | Directive/control | Once per turn before the loop; all valid string/`{"context": ...}` returns are joined and injected into the user message. | `session_id`, `task_id`, `turn_id`, `user_message`, `conversation_history`, `is_first_turn`, `model`, `platform`, `parent_session_id`, `sender_id` | Full user message and conversation history. |
 | `post_llm_call` | Observer | Successful, non-interrupted turn finalization; return ignored. | `session_id`, `task_id`, `turn_id`, `user_message`, `assistant_response`, `conversation_history`, `model`, `platform` | Full prompt, response, and history. |
@@ -1681,6 +1682,41 @@ def register(ctx):
 ```
 
 Pairs with `transform_tool_result`, which runs afterward for every tool, including `terminal`.
+
+---
+
+### `format_tool_result_for_display`
+
+Fires on user-facing display paths — CLI tool-completion lines, gateway progress messages, and gateway verbose args — and lets a plugin reformat how a tool call/result LOOKS without touching what the model sees. Unlike `transform_tool_result`, the return value never reaches the conversation.
+
+**Callback signature:**
+
+```python
+def my_callback(tool_name: str, args: dict, result: str, display_context: str, **kwargs) -> str | None:
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `tool_name` | `str` | The tool that ran. |
+| `args` | `dict` | The tool arguments. |
+| `result` | `str` | The display text about to be rendered (completion line, args JSON, ...). |
+| `display_context` | `str` | Where the text renders: `"gateway_progress"`, `"gateway_verbose_args"`, or `""` (CLI). |
+
+**Return value:** First `str` replaces the display text; `None` leaves it unchanged.
+
+```python
+from tools.tool_output_limits import format_args_for_display
+
+def yaml_verbose_args(tool_name, args, display_context, **kwargs):
+    if display_context == "gateway_verbose_args" and args:
+        return format_args_for_display(args, fmt="yaml")
+    return None
+
+def register(ctx):
+    ctx.register_hook("format_tool_result_for_display", yaml_verbose_args)
+```
+
+The bundled `tool-output-format` plugin implements this hook; set `tool_output.format: yaml` in `config.yaml` to render tool output as YAML in the CLI and gateway verbose views.
 
 ---
 

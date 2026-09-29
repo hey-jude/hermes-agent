@@ -274,20 +274,11 @@ class TurnRunner:
         # Allow plugins to reformat progress display for boxed tools
         # (write_file/execute_code/patch args as fenced code blocks),
         # mirroring the terminal command fence above.
-        try:
-            from hermes_cli.plugins import has_hook, invoke_hook
-            if has_hook("format_tool_result_for_display"):
-                for hr in invoke_hook(
-                    "format_tool_result_for_display",
-                    tool_name=tool_name,
-                    args=args,
-                    display_context="gateway_progress",
-                ):
-                    if isinstance(hr, str):
-                        ctx.progress_queue.put(f"{emoji} {tool_name}\n{hr}")
-                        return None
-        except Exception:
-            pass
+        from hermes_cli.plugins import apply_display_hook
+        fenced = apply_display_hook(tool_name, args=args, display_context="gateway_progress")
+        if fenced is not None:
+            ctx.progress_queue.put(f"{emoji} {tool_name}\n{fenced}")
+            return None
         verbose = ctx.progress_mode == "verbose"
         code = code_full if verbose else code_short
         ctx.last_was_terminal_block[0] = code is not None
@@ -297,21 +288,15 @@ class TurnRunner:
                 pl = get_tool_preview_max_len()
                 args_str = json.dumps(args, ensure_ascii=False, default=str)
                 # Display-only hook (LLM payload unchanged).
-                try:
-                    from hermes_cli.plugins import has_hook, invoke_hook
-                    if has_hook("format_tool_result_for_display"):
-                        for hook_result in invoke_hook(
-                            "format_tool_result_for_display",
-                            tool_name=tool_name,
-                            args=args,
-                            result=args_str,
-                            display_context="gateway_verbose_args",
-                        ):
-                            if isinstance(hook_result, str):
-                                args_str = hook_result
-                                break
-                except Exception:
-                    pass
+                from hermes_cli.plugins import apply_display_hook
+                replaced = apply_display_hook(
+                    tool_name,
+                    args=args,
+                    result=args_str,
+                    display_context="gateway_verbose_args",
+                )
+                if replaced is not None:
+                    args_str = replaced
                 # tool_preview_length 0 (default) = no truncation in verbose mode; the user asked
                 # for full detail and platform message-length limits handle the rest.
                 if pl > 0 and len(args_str) > pl:

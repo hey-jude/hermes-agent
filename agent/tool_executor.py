@@ -1228,17 +1228,10 @@ def _print_tool_completed(agent, index: int, tool_duration: float, result) -> No
 
 def _apply_display_hook(tool_name, args, result, fallback=None):
     """Display-only reformat via ``format_tool_result_for_display`` hook (LLM payload unchanged)."""
-    try:
-        from hermes_cli.plugins import has_hook, invoke_hook
-        if has_hook("format_tool_result_for_display"):
-            for hook_result in invoke_hook(
-                "format_tool_result_for_display",
-                tool_name=tool_name, args=args, result=result,
-            ):
-                if isinstance(hook_result, str):
-                    return hook_result
-    except Exception:
-        pass
+    from hermes_cli.plugins import apply_display_hook
+    replaced = apply_display_hook(tool_name, args=args, result=result)
+    if replaced is not None:
+        return replaced
     return fallback if fallback is not None else result
 
 

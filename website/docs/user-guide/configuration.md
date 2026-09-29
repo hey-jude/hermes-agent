@@ -904,11 +904,13 @@ tool_output:
   max_bytes: 50000        # terminal output cap (chars)
   max_lines: 2000         # read_file pagination cap
   max_line_length: 2000   # per-line cap in read_file's line-numbered view
+  format: json            # display-only format: json | yaml | text | compact
 ```
 
 - **`max_bytes`** — When a `terminal` command produces more than this many characters of combined stdout/stderr, Hermes keeps the first 40% and last 60% and inserts a `[OUTPUT TRUNCATED]` notice between them. Default `50000` (≈12-15K tokens across typical tokenisers).
 - **`max_lines`** — Upper bound on the `limit` parameter of a single `read_file` call. Requests above this are clamped so a single read can't flood the context window. Default `2000`.
 - **`max_line_length`** — Per-line cap applied when `read_file` emits the line-numbered view. Lines longer than this are truncated to this many chars followed by `... [truncated]`. Default `2000`.
+- **`format`** — Display-only rendering of tool output (what you see, never what the model sees): `json` (default), `yaml` (literal block scalars for multi-line values), `text` (plain string), `compact` (indented JSON). Applied by the bundled `tool-output-format` plugin on CLI completion lines and gateway progress/verbose views. Default `json`.
 
 Raise the limits on models with large context windows that can afford more raw output per call. Lower them for small-context models to keep tool results compact:
 

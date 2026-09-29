@@ -1948,6 +1948,29 @@ def fire_pre_command_hook(
         logger.debug("pre_command hook dispatch failed (non-fatal): %s", exc)
 
 
+def apply_display_hook(
+    tool_name: str, args: Any = None, result: Any = None, display_context: str = "",
+) -> Optional[str]:
+    """Fire ``format_tool_result_for_display``; first string wins, else None. Never raises.
+
+    Display-only reformat (LLM payload unchanged): plugins return a replacement
+    display string or None to leave the text alone. Runs synchronously — keep
+    callbacks fast, display paths call this per tool.
+    """
+    try:
+        if not has_hook("format_tool_result_for_display"):
+            return None
+        for hook_result in invoke_hook(
+            "format_tool_result_for_display",
+            tool_name=tool_name, args=args, result=result, display_context=display_context,
+        ):
+            if isinstance(hook_result, str):
+                return hook_result
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("format_tool_result_for_display hook dispatch failed (non-fatal): %s", exc)
+    return None
+
+
 _thread_tool_whitelist = threading.local()
 
 
