@@ -565,6 +565,20 @@ async def update_memory_provider_config(
             return {"ok": True}
         provider = _load_memory_provider(name)
         if provider is None:
+            from plugins.memory import find_provider_dir
+
+            if _memory_provider_manifest(name) or find_provider_dir(name) is not None:
+                # On disk but unimportable (missing deps / stale venv): the setup
+                # route tolerates this, so save must not misreport it as unknown.
+                try:
+                    _require_memory_provider_ready(name)
+                except HTTPException:
+                    raise
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Memory provider '{name}' is installed but failed to load. "
+                    "Run setup first, then save again.",
+                )
             raise _unknown_provider(name)
         _write_memory_provider_config_values(name, provider, values)
         _require_memory_provider_ready(name)

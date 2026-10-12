@@ -745,6 +745,23 @@ CONFIG_SCHEMA = ProviderConfigSchema(
         assert "api_key" not in provider_config
 
 
+    def test_put_memory_provider_config_unimportable_provider_is_400_not_404(self, monkeypatch):
+        """An installed but unimportable provider (missing deps / stale venv) must not be
+        misreported as unknown (404). The setup route tolerates it, so save must answer 400."""
+        import hermes_cli.web_routers.memory_providers as mp_routes
+
+        self._install_flatprov()
+        monkeypatch.setattr(mp_routes, "_load_memory_provider", lambda name: None)
+
+        resp = self.client.put(
+            "/api/memory/providers/flatprov/config",
+            json={"values": {"mode": "cloud"}},
+        )
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"] != "Unknown memory provider: flatprov"
+
+
     def test_get_memory_provider_config_does_not_return_secret(self):
         self._install_flatprov()
         self.client.put(
