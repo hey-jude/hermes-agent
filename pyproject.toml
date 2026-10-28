@@ -648,6 +648,16 @@ override-dependencies = [
   # never builds a misaki G2P. The never-true marker removes it from the lock.
   # Remove this line when misaki drops it or a 3.14-capable release fits.
   "spacy-curated-transformers; sys_platform == 'never'",
+  # mnemosyne-memory[embeddings] (forced by mnemosyne-hermes) caps onnxruntime at
+  # <1.29, while PM's `_trust_core_lock()` constrains every core-locked registry
+  # package to onnxruntime==1.29.0. The intersection is empty, so enabling the
+  # mnemosyne plugin fails admission. This override replaces BOTH the transitive
+  # <1.29 cap and PM's ==1.29.0 constraint (uv overrides replace the requirement,
+  # not only the bound). The version is served by the stub wheel in the matching
+  # `[tool.uv.sources]` entry below: the runtime never imports onnxruntime
+  # (mnemosyne uses API embeddings), and no installable darwin-x64 py3.14 wheel
+  # exists. Remove both entries when mnemosyne lifts the cap or a real wheel ships.
+  "onnxruntime==1.27.0",
 ]
 # Release-age check: Hermes's dependencies must be at least 3 days old when Hermes
 # locks them. It runs where uv.lock is resolved (`hermes pm lock`, and CI's lock
@@ -660,6 +670,14 @@ override-dependencies = [
 # Only packages whose job is CA trust belong in exclude-newer-package.
 exclude-newer = "3 days"
 exclude-newer-package = { certifi = false }
+
+[tool.uv.sources]
+# uv reads a `sources` path as an override pin, so this pure-Python stub wheel
+# (`onnxruntime/__init__.py` holds only `__version__`) satisfies the onnxruntime
+# requirement that has no installable darwin-x64 CPython-3.14 wheel. Paired with the
+# `override-dependencies` entry above, which decides the version. The runtime never
+# imports onnxruntime (mnemosyne uses API embeddings), so the stub is inert.
+onnxruntime = { path = "/Users/jude/.hermes/mnemosyne/stubwheels/onnxruntime-1.27.0-py3-none-any.whl" }
 
 [tool.setuptools]
 # Root single-file modules are derived by setup.py at build time from the
