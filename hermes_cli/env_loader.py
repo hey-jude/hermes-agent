@@ -555,9 +555,12 @@ def _sanitize_env_file_if_needed(path: Path) -> None:
     if not path.exists():
         return
     try:
-        from hermes_cli.config import _sanitize_env_lines
+        # Leaf module on purpose — never ``hermes_cli.config``: this sanitize runs BEFORE the .env
+        # values are published, so importing the config layer here would let the provider/plugin
+        # layer import first and snapshot a half-loaded environment.
+        from hermes_cli.env_lines import sanitize_env_lines as _sanitize_env_lines
     except ImportError:
-        return  # early bootstrap — config module not available yet
+        return  # early bootstrap — the env-line helper is not importable yet
 
     try:
         raw = path.read_bytes()

@@ -2441,17 +2441,10 @@ def invalidate_env_cache() -> None:
     invalidate_env_file_cache()
 
 
-def _sanitize_env_lines(lines: list) -> list:
-    """Normalize .env line endings/whitespace without changing assignment semantics.
-    Content after the first ``=`` is opaque value data: a known variable name embedded in a value
-    must never be reinterpreted as another assignment, so concatenated lines stay on one line."""
-    sanitized: list[str] = []
-    for line in lines:
-        raw = line.rstrip("\r\n")
-        stripped = raw.strip()
-        # Blank lines and comments are preserved verbatim.
-        sanitized.append((raw if not stripped or stripped.startswith("#") else stripped) + "\n")
-    return sanitized
+# Defined in a leaf module on purpose: hermes_cli.env_loader normalizes a .env BEFORE it publishes
+# the values, and importing this module from there would drag the provider/plugin layer in first
+# (plugins that snapshot their env defaults at import time then read a half-loaded environment).
+from hermes_cli.env_lines import sanitize_env_lines as _sanitize_env_lines
 
 
 def sanitize_env_file() -> int:

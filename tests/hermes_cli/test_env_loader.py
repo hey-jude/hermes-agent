@@ -1,5 +1,8 @@
 import codecs
 import os
+import subprocess
+import sys
+from pathlib import Path
 
 from hermes_cli.env_loader import load_hermes_dotenv
 
@@ -622,3 +625,44 @@ def test_dotenv_published_dashboard_session_token_still_reloads(tmp_path, monkey
     (home / ".env").write_text("HERMES_DASHBOARD_SESSION_TOKEN=second\n", encoding="utf-8")
     load_hermes_dotenv(hermes_home=home)
     assert os.environ["HERMES_DASHBOARD_SESSION_TOKEN"] == "second"
+
+
+def test_dotenv_published_before_the_config_layer_imports(tmp_path):
+    """Publishing .env must precede every import of ``hermes_cli.config``.
+
+    The config layer imports the provider/plugin entry points, and some plugins read their
+    defaults out of the environment at module import — mnemosyne's embedding model and
+    dimension are one. The dotenv loader used to import config to sanitize the file, so those
+    defaults froze to the 384-dim fallback while the store and .env agreed on a 1024-dim model,
+    which fails every memory write. This asserts the ordering, not the mechanism: whichever
+    module pulls config in, the .env value is already published.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    env_file = tmp_path / ".env"
+    env_file.write_text("CONTRACT_PROBE_VAR=present\n", encoding="utf-8")
+    script = f"""
+import os, sys
+sys.path.insert(0, {str(repo_root)!r})
+
+class Probe:
+    seen = None
+    def find_spec(self, name, path=None, target=None):
+        if name == "hermes_cli.config" and Probe.seen is None:
+            Probe.seen = os.environ.get("CONTRACT_PROBE_VAR")
+        return None
+
+sys.meta_path.insert(0, Probe())
+from hermes_cli.env_loader import load_hermes_dotenv
+load_hermes_dotenv(project_env=os.environ["CONTRACT_PROBE_ENV"])
+print("SEEN=" + str(Probe.seen))
+"""
+    done = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "CONTRACT_PROBE_ENV": str(env_file)},
+        timeout=180,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    assert "SEEN=present" in done.stdout, done.stdout + done.stderr

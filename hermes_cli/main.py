@@ -704,15 +704,15 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-# Load .env from ~/.hermes/.env first, then project root as dev fallback.
-# User-managed env files should override stale shell exports on restart.
-from hermes_cli.config import get_hermes_home
+# Load .env from ~/.hermes/.env first, then project root as dev fallback; user-managed env files
+# should override stale shell exports on restart, and the load must precede every provider import
+# (plugins snapshot env defaults at import time, e.g. mnemosyne's embedding model).
 from hermes_cli.env_loader import load_hermes_dotenv
-
 # ``update`` must not resolve external secret sources (Windows self-lock via cryptography, slow
-# helpers inside the import probe) — ``_early_recovery._should_skip_external_secret_sources``
-# owns that argv check for every dotenv load in the process. See #73381.
+# helpers inside the import probe) — ``_early_recovery._should_skip_external_secret_sources`` owns
+# that argv check for every load. See #73381.
 load_hermes_dotenv(project_env=PROJECT_ROOT / ".env")
+from hermes_cli.config import get_hermes_home  # must follow the dotenv load above
 
 # Bridge security.redact_secrets → HERMES_REDACT_SECRETS BEFORE hermes_logging
 # imports agent.redact, which snapshots the flag exactly once at import. A
