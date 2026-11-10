@@ -19,6 +19,7 @@ from gateway.config import Platform
 from gateway.media_repair import repair_explicit_computer_use_media_paths
 from gateway.platforms.base import BasePlatformAdapter
 from gateway.platforms.helpers import typing_metadata_for_turn
+from gateway.run_turn_progress_boxed import boxed_tool_block
 from gateway.turn_context import TurnContext
 from hermes_cli.config import cfg_get
 from utils import is_truthy_value
@@ -331,6 +332,19 @@ class GatewayTurnProgressMixin:
             adapter = self._runner._delivery_adapter_for(ctx.source)
         except Exception:
             adapter = None
+        boxed = (
+            boxed_tool_block(tool_name, args, full=ctx.progress_mode == "verbose", cap=self._preview_cap())
+            if getattr(adapter, "supports_code_blocks", False) else None
+        )
+        if boxed is not None:
+            # Payload tools render as their own fenced block instead of a one-line
+            # preview; a following terminal call owes its header again.
+            ctx.last_was_terminal_block[0] = False
+            message = f"{t('gateway.progress.tool_head', emoji=emoji, tool=tool_name)}\n{boxed}"
+            if ctx.progress_mode == "verbose":
+                ctx.progress_queue.put(message)
+                return None
+            return message
         code_full, code_short = self._progress_terminal_blocks(adapter, tool_name, args, emoji)
         verbose = ctx.progress_mode == "verbose"
         code = code_full if verbose else code_short
